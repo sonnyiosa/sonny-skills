@@ -19,14 +19,26 @@ def check_layout():
     assert {entry["name"] for entry in entries} == expected, "Claude inventory differs from plugins/"
 
     for entry in entries:
-        plugin = ROOT / "plugins" / entry["name"]
-        assert entry["source"] == f"./plugins/{entry['name']}", f"wrong source for {entry['name']}"
+        package = ROOT / "plugins" / entry["name"]
+        source = entry["source"]
+        assert isinstance(source, str) and source.startswith("./") and ".." not in Path(source).parts, f"wrong source for {entry['name']}"
+        plugin = (ROOT / source).resolve()
+        assert plugin.is_relative_to(package), f"wrong source for {entry['name']}"
         manifest = read_json(plugin / ".claude-plugin/plugin.json")
         assert manifest["name"] == entry["name"], f"wrong plugin name in {plugin}"
         assert manifest["version"] == entry["version"], f"stale Claude version for {entry['name']}"
-        assert (plugin / "LICENSE").is_file(), f"missing license in {plugin}"
+        assert (package / "LICENSE").is_file(), f"missing license in {package}"
         skills = list((plugin / "skills").glob("*/SKILL.md"))
         assert skills, f"no discoverable skills in {plugin}"
+        agents = manifest.get("agents", [])
+        if isinstance(agents, str):
+            agents = [agents]
+        assert isinstance(agents, list), f"invalid agents in {plugin}"
+        for path in agents:
+            assert isinstance(path, str) and path.startswith("./") and path.endswith(".md") and ".." not in Path(path).parts, f"wrong agent path in {plugin}: {path}"
+            agent = (plugin / path).resolve()
+            assert agent.is_relative_to(plugin), f"wrong agent path in {plugin}: {path}"
+            assert agent.is_file(), f"missing agent in {plugin}: {path}"
 
     for directory, manifest_directory, source_field in [
         (".agents/plugins", ".codex-plugin", "local"),

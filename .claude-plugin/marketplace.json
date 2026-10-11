@@ -1,6 +1,6 @@
 {
   "name": "sonny-skills",
-  "description": "Sonny’s personal collection of coding-agent plugins and skills.",
+  "description": "Sonny's personal collection of coding-agent plugins and skills.",
   "owner": {
     "name": "Sonny"
   },
@@ -28,8 +28,8 @@
     {
       "name": "pstack",
       "description": "if you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence.",
-      "version": "0.15.15",
-      "source": "./plugins/pstack",
+      "version": "0.9.81",
+      "source": "./plugins/pstack/plugins/pstack",
       "author": {
         "name": "Lauren Tan"
       }
