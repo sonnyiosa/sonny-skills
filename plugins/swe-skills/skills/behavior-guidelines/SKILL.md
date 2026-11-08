@@ -1,12 +1,14 @@
 ---
 name: behavior-guidelines
-description: Behavioral guidelines to reduce common LLM coding mistakes. Always load this skill when starting coding session. Use when creating spec/plan, writing or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
+description: Behavioral guidelines to reduce common LLM coding mistakes. Load ONCE per session, before the first coding, spec, or plan task. Do not re-invoke if this skill's content is already in context. Covers avoiding overcomplication, surgical changes, surfacing assumptions, and verifiable success criteria.
 license: MIT
 ---
 
 # Behavior Guidelines
 
 Behavioral guidelines to reduce common LLM coding mistakes
+
+**Load once.** These rules stay in effect for the whole session after the first load. Do not invoke this skill again for later tasks, and do not reload `references/asd-ste100.md`. Reload only if the content was lost to context compaction.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
