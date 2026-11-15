@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -47,13 +47,13 @@ import {
   strayModelSlugs,
   tableRows,
 } from "../tools/generate.mjs";
-import { piModelNamesSection, RUNTIMES } from "../tools/runtimes.mjs";
+import { RUNTIMES } from "../tools/runtimes.mjs";
 import { walk } from "../tools/validate-skills.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const models = loadModels();
 const leads = loadLeadLines();
-const [codex, pi, copilot] = RUNTIMES;
+const [codex] = RUNTIMES;
 
 const lines = (text) => text.split("\n");
 const spanned = (locate, doc) => {
@@ -140,16 +140,7 @@ describe("runtime model names", () => {
     }
   });
 
-  test("the Pi section tables every alias per provider, names the fallback, and names the sheet override", () => {
-    const tables = { ...models.pi.models, marker: { opus: "marker/o", fable: "marker/f", sonnet: "marker/s", haiku: "marker/h" } };
-    const text = piModelNamesSection({ ...models, pi: { fallback: "marker", models: tables } });
-    expect(text).toContain(`| Alias | ${Object.keys(tables).map((p) => `\`${p}\``).join(" | ")} |`);
-    for (const alias of models.available) {
-      expect(text).toContain(`| \`${alias}\` | ${Object.values(tables).map((t) => `\`${t[alias]}\``).join(" | ")} |`);
-    }
-    expect(text).toContain("in the `marker` column for any other provider");
-    expect(text).toContain("`pi models: ");
-  });
+
 });
 
 describe("strayModelSlugs", () => {
@@ -500,29 +491,18 @@ describe("lead lines", () => {
     for (const text of ["# X\n\nA.\n", "# X\n\nA."]) expect(stampLeadLine(text, "A.")).toBe(text);
   });
 
-  test("Codex and Copilot stamp a preamble on their noted skills and Pi stamps none", () => {
-    expect(RUNTIMES.map((r) => r.name)).toEqual(["Codex", "Pi", "GitHub Copilot"]);
-    expect(codex.preamble).toBe(
-      "On Codex, read the [platform mapping](../poteto-mode/references/codex-tools.md), including its per-skill notes, before following this skill.",
-    );
-    expect(copilot.preamble).toBe(
-      "On GitHub Copilot, read the [platform mapping](../poteto-mode/references/copilot-tools.md), including its per-skill notes, before following this skill.",
-    );
-    expect(pi.preamble).toBeNull();
-    expect([...leads.values()].flat().filter((line) => line.includes("pi-tools.md"))).toEqual([]);
-  });
+
 
   test("a notes table lists its skills in row order and rejects a row without one", () => {
-    const table = (...rows) => ["| Skill | On Pi |", "|-------|-------|", ...rows, "", "after"].join("\n");
-    expect(noteSkills(pi, table("| `how` | fan-out |", "| `teach` | images |"))).toEqual(["how", "teach"]);
-    expect(() => noteSkills(pi, table("| how | fan-out |"))).toThrow("does not start with a backticked skill: | how |");
+    const table = (...rows) => ["| Skill | On Codex |", "|-------|-------|", ...rows, "", "after"].join("\n");
+    expect(noteSkills(codex, table("| `how` | fan-out |", "| `teach` | images |"))).toEqual(["how", "teach"]);
+    expect(() => noteSkills(codex, table("| how | fan-out |"))).toThrow("does not start with a backticked skill: | how |");
     expect(() => noteSkills(codex, "no table\n")).toThrow('"| Skill | On Codex |" table header not found');
   });
 
   test("a prompt stub points at its runtime's mapping file unless its skill carries that runtime's preamble", () => {
     const pointer = "through `poteto-mode/references/codex-tools.md`, including its Per-skill notes.";
     expect(promptStub({ name: "tdd", menu: "m" }, codex, { preamble: false })).toContain(pointer);
-    expect(promptStub({ name: "tdd", menu: "m" }, pi, { preamble: false })).toContain("`poteto-mode/references/pi-tools.md`");
     expect(promptStub({ name: "how", menu: "m" }, codex, { preamble: true })).toBe(
       "---\nname: how\ndescription: m\ndisable-model-invocation: true\n---\n\nInvoke the `how` skill and follow it.\n",
     );
@@ -617,6 +597,17 @@ describe("plan, changes, apply", () => {
   const quiet = { log: () => {} };
   const STUB = "plugins/pstack/.codex-plugin/prompts/tdd.md";
   const STRAY = "plugins/pstack/effort-agents/stray.md";
+
+  test("generation removes an old Copilot preamble and preserves the Codex guidance and body", () => {
+    const root = repoCopy();
+    const file = "plugins/pstack/skills/how/SKILL.md";
+    const original = readFileSync(join(root, file), "utf8");
+    const old = "On GitHub Copilot, read the [platform mapping](../poteto-mode/references/copilot-tools.md), including its per-skill notes, before following this skill.";
+    writeFileSync(join(root, file), original.replace(codex.preamble, `${codex.preamble}\n\n${old}`));
+    apply(root, plan(root), quiet);
+    expect(readFileSync(join(root, file), "utf8")).toBe(original);
+    expect(changes(root, plan(root))).toEqual([]);
+  });
 
   test("the working tree is what the plan says", () => {
     expect(changes(repoRoot, plan(repoRoot))).toEqual([]);
@@ -929,18 +920,21 @@ describe("plan, changes, apply", () => {
     }
   });
 
-  test("problems checks the Copilot manifest and the hooks file it names", () => {
+
+
+  test("problems rejects a restored unsupported runtime", () => {
+    for (const file of ["plugins/pstack/pi/index.ts", "plugins/pstack/.github/plugin/plugin.json"]) {
+      const root = repoCopy();
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), "{}\n");
+      expect(problems(root)).toContain("unsupported Pi or Copilot integration present");
+    }
     const root = repoCopy();
-    const manifest = "plugins/pstack/.github/plugin/plugin.json";
-    const hooks = "plugins/pstack/hooks/copilot-hooks.json";
-    writeFileSync(join(root, hooks), readFileSync(join(root, hooks), "utf8").replace("hooks/pre-tool-use.sh", "hooks/gone.sh"));
-    expect(problems(root)).toEqual([expect.stringContaining("hooks/gone.sh does not exist")]);
-    const text = readFileSync(join(root, manifest), "utf8");
-    writeFileSync(join(root, manifest), text.replace('"name": "pstack"', '"name": "other"'));
-    expect(problems(root)).toEqual([
-      expect.stringContaining(`${manifest}: name "other"`),
-      expect.stringContaining("hooks/gone.sh does not exist"),
-    ]);
+    const file = join(root, "package.json");
+    const manifest = JSON.parse(readFileSync(file, "utf8"));
+    manifest.pi = {};
+    writeFileSync(file, JSON.stringify(manifest));
+    expect(problems(root)).toContain("unsupported Pi or Copilot integration present");
   });
 
   test("problems reports a hook path that resolves outside the plugin, through .. or through a symlink", () => {

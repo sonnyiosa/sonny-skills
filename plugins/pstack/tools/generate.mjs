@@ -8,7 +8,7 @@
 //   VERSION  -> the "version" field in the Claude Code manifests and each RUNTIMES row's manifest
 //   CHANGES.md must carry a heading for the current VERSION (release completeness)
 //   each skill's frontmatter (name + description) defines the shared Agent
-//   Skills boundary consumed natively by Codex, Prime, opencode, and Gemini CLI
+//   Skills boundary consumed by Claude Code and Codex
 //   docs/reference.md's "Slash commands" table (one row per public skill, in editorial
 //   order; the row text is the slash-menu one-liner)
 //     -> its prompt stub in the prompts directory of each RUNTIMES row that has one
@@ -16,21 +16,16 @@
 //   user-invocable: false); a skill without a row or a row without a skill
 //   fails by name.
 //   plugins/pstack/models.json (the model policy: role defaults, diverse panel,
-//   available slugs, and one block per RUNTIMES row: Codex equivalents, Pi IDs)
+//   available slugs, and Codex equivalents)
 //     -> each model-consuming skill's "## Models" and "## Reasoning effort" sections
 //     -> setup-pstack's Models section and override-sheet block, and interrogate's reviewer table
 //     -> the "## Model names" section of each runtime's mapping file
-//        (poteto-mode/references/codex-tools.md, pi-tools.md, copilot-tools.md)
+//        (poteto-mode/references/codex-tools.md)
 //     -> one effort agent pair per level in plugins/pstack/effort-agents/
 //   the Per-skill notes table in poteto-mode/references/codex-tools.md
 //     -> the Codex preamble under the first heading of each listed skill's SKILL.md,
 //        and the codex-tools.md pointer in the prompt stub of every other public skill
-//   the Per-skill notes table in poteto-mode/references/copilot-tools.md
-//     -> the GitHub Copilot preamble under the same heading, after any Codex one
 //   DRIVER_PLAYBOOKS -> the driver-skill line under each playbook's first heading
-//   plugins/pstack/models.json's roles, again
-//     -> the role list in setup-pstack's scripts/sheet.awk, which checks a Copilot sheet
-//     -> the list of skills that dispatch on role models in hooks/session-start-copilot.md
 //   plugins/pstack/{agents,effort-agents}/*.md -> the "agents" list in
 //     plugins/pstack/.claude-plugin/plugin.json (a list replaces the default
 //     agents/ directory, so it names every agent)
@@ -62,7 +57,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { code, codeList, PLUGIN, SKILLS } from "./plugin.mjs";
-import { RUNTIMES, roleSkills } from "./runtimes.mjs";
+import { RUNTIMES } from "./runtimes.mjs";
 import { markdownFiles, pathIsInside, validateProsePaths, validateSkillsTree, walk } from "./validate-skills.mjs";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -359,23 +354,6 @@ export const lineStartingWith = (prefix) => (lines) => {
 
 const blankPadded = (body) => ["", ...body.split("\n"), ""];
 
-const SHEET_ROLES_OPEN = "  # Stamped from plugins/pstack/models.json; edit there and rerun tools/generate.mjs.";
-const ROLE_SKILLS_LINE = "Skills that dispatch on role models:";
-
-// awk string literals: models.json role labels and effort levels hold no quote
-// or backslash, which parseModels does not check, so check here.
-function sheetRoles(models) {
-  const quote = (s) => {
-    if (/["\\]/.test(s)) throw new Error(`models.json: "${s}" cannot go in an awk string`);
-    return `"${s}"`;
-  };
-  return [
-    ...models.roles.map((r) => `  roles[++n] = ${quote(r.role)}`),
-    ...models.roles.filter((r) => r.tier === "panel").map((r) => `  panel[${quote(r.role)}] = 1`),
-    ...models.efforts.map((level) => `  SHEET_EFFORT[${quote(level)}] = 1`),
-  ];
-}
-
 function requiredRole(models, label) {
   const role = models.roles.find((r) => r.role === label);
   if (!role) throw new Error(`models.json: no "${label}" role, which a stamped region renders from`);
@@ -434,36 +412,15 @@ export function regions(models) {
       locate: section("Model names"),
       render: () => blankPadded(runtime.modelNames(models)),
     })),
-    {
-      file: skillFile("setup-pstack").replace("SKILL.md", "scripts/sheet.awk"),
-      name: "role list",
-      locate: between(SHEET_ROLES_OPEN, "  return n"),
-      render: () => sheetRoles(models),
-    },
-    {
-      file: skillFile("setup-pstack").replace("SKILL.md", "copilot.md"),
-      name: "roles by tier",
-      locate: tableRows("| Tier | Roles |", "| "),
-      render: () =>
-        [
-          ["Default", "default"],
-          ["Strongest", "strongest"],
-          ["Panel", "panel"],
-        ].map(([label, tier]) => `| ${label} | ${models.roles.filter((r) => r.tier === tier).map((r) => code(r.role)).join(", ")} |`),
-    },
-    {
-      file: `${PLUGIN}/hooks/session-start-copilot.md`,
-      name: "role-model skill list",
-      locate: lineStartingWith(ROLE_SKILLS_LINE),
-      render: () => [`${ROLE_SKILLS_LINE} ${roleSkills(models).map(code).join(", ")}.`],
-    },
+
   ];
 }
 
 const PREAMBLE_RUNTIMES = RUNTIMES.filter((runtime) => runtime.preamble);
 const DRIVER_LINE = "Resolve the driver skill through [poteto-mode's Non-negotiables](../SKILL.md#non-negotiables).";
 const DRIVER_PLAYBOOKS = ["autopilot-full", "multi-phase-plan", "orchestrate", "refactoring", "shipping"];
-const LEAD_LINES = [...PREAMBLE_RUNTIMES.map((runtime) => runtime.preamble), DRIVER_LINE];
+const OBSOLETE_PREAMBLE = "On GitHub Copilot, read the [platform mapping](../poteto-mode/references/copilot-tools.md), including its per-skill notes, before following this skill.";
+const LEAD_LINES = [...PREAMBLE_RUNTIMES.map((runtime) => runtime.preamble), DRIVER_LINE, OBSOLETE_PREAMBLE];
 
 // The skills with a row in a runtime mapping's Per-skill notes table, in row order.
 export function noteSkills(runtime, markdown) {
@@ -564,6 +521,7 @@ export function parseModels(raw, skillExists) {
   for (const key of ["tiers", ...RUNTIMES.filter((runtime) => runtime.key).map((runtime) => runtime.key)]) {
     if (!isObject(raw[key])) fail(`"${key}" must be an object`);
   }
+  if (Object.hasOwn(raw, "pi")) fail("unsupported pi model configuration");
   const available = new Set(raw.available);
   unique(raw.available, "available");
   for (const tier of TIERS) {
@@ -777,7 +735,7 @@ export function overrideSheetBlock(models) {
     "A model may carry a reasoning effort, as in `opus @xhigh` (levels: " + models.efforts.join(", ") + "); " +
     "the role then runs through the pstack effort agent of that level, each entry of a panel list on its own. " +
     "`default effort` sets the level for a value without one; `session` keeps the parent session's effort. " +
-    "`session hook: off` stops the Claude Code or Codex SessionStart hook, or the pstack Pi extension, from injecting the poteto-mode mandate; " +
+    "`session hook: off` stops the Claude Code or Codex SessionStart hook, from injecting the poteto-mode mandate; " +
     "any other value, or no line, leaves it on.\n\n" +
     rows +
     `\n\ndefault effort: ${models.defaultEffort}\nsession hook: on`
@@ -924,6 +882,10 @@ export function plan(root, models) {
   };
   for (const file of VERSIONED_MANIFESTS) stamp(file, (text) => stampVersion(text, version, file));
   for (const file of new Set(regions(models).map((r) => r.file))) stamp(file, (text) => applyRegions(file, text, models));
+  for (const full of markdownFiles(join(root, SKILLS))) {
+    const file = relative(root, full);
+    if (read(file).includes(OBSOLETE_PREAMBLE)) stamp(file, (text) => text.replaceAll(`${OBSOLETE_PREAMBLE}\n\n`, ""));
+  }
   const leads = loadLeadLines(root);
   for (const [file, line] of leads) {
     stamp(file, (text) => {
@@ -1025,6 +987,11 @@ export function problems(root, models) {
   const skillsDir = join(root, SKILLS);
   const read = (rel) => readFileSync(join(root, rel), "utf8");
   const pathExists = (rel) => existsSync(join(root, rel));
+  attempt(() => {
+    const manifest = JSON.parse(read("package.json"));
+    if (manifest.pi || pathExists(`${PLUGIN}/pi`) || pathExists(`${PLUGIN}/.github/plugin/plugin.json`))
+      throw new Error("unsupported Pi or Copilot integration present");
+  });
   const packages = RUNTIMES.map((runtime) =>
     attempt(() => {
       const text = read(runtime.manifest);

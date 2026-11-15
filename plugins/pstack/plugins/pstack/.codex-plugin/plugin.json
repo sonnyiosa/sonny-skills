@@ -22,10 +22,7 @@
     "tdd",
     "code-review",
     "parallel-agents",
-    "codex",
-    "opencode",
-    "gemini-cli",
-    "prime-agent"
+    "codex"
   ],
   "skills": "./skills/",
   "hooks": "./hooks/codex-hooks.json",

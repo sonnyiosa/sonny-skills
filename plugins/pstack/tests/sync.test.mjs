@@ -599,6 +599,18 @@ describe("syncComponent", () => {
     expect(readFileSync(join(local, "README.md"), "utf8")).toBe("the port's own readme\n");
   });
 
+  test("the support exclusions keep removed runtime files out of an upstream import", () => {
+    const config = JSON.parse(readFileSync(new URL("../tools/upstream.json", import.meta.url), "utf8"));
+    const exclude = config.components.pstack.exclude;
+    const files = ["pi/index.ts", ".github/plugin/plugin.json", "skills/poteto-mode/references/pi-tools.md", "skills/poteto-mode/references/copilot-tools.md", "skills/setup-pstack/copilot.md"];
+    const oldDir = tree({});
+    const newDir = tree(Object.fromEntries(files.map((file) => [file, "removed integration\n"])));
+    const localDir = tree({});
+    const report = sync({ oldDir, newDir, localDir, exclude });
+    expect(report.written).toEqual([]);
+    for (const file of files) expect(existsSync(join(localDir, file))).toBe(false);
+  });
+
   test("an upstream deletion removes the local copy when the port never edited it", () => {
     const oldUp = tree({ "a.md": "keep\n", "gone.md": "AskQuestion here\n", "forked.md": "old\n" });
     const newUp = tree({ "a.md": "keep\n" });

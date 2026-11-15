@@ -2,6 +2,8 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
+Before the next release, pstack supports Claude Code and Codex only. Version 0.9.81 is the last release with Pi and GitHub Copilot integrations. Existing installations are not removed automatically.
+
 ## 0.9.81 - inspect terminal PRs and recover orphaned Pi agents
 
 `ship-pr inspect` reads closed and merged PRs after their base branch is deleted, using the stored base commit when the current branch is gone. Open PRs still require the current base target, and cancellation refuses a closed or merged PR before changing anything.

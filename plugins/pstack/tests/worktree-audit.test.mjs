@@ -5,7 +5,6 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { defaultSettings, PSTACK_STATE_DIR } from "../plugins/pstack/pi/config.ts";
 import { audit, classify, defaultTranscriptRoots, duSize, lastChats, pathSpellings, symlinkTargets } from "../plugins/pstack/skills/poteto-mode/scripts/worktree-audit.mjs";
 import { removeDuring } from "./remove-during.mjs";
 
@@ -298,27 +297,7 @@ test("a diff.ignoreSubmodules=all config does not hide submodule work from the a
   }
 });
 
-test("a Pi session in a second transcripts root marks the worktree it ran in as a recent chat", () => {
-  const fixture = createFixture();
-  const piChatted = addWorktree(fixture, "pi-chatted");
-  const quiet = addWorktree(fixture, "quiet");
-  const sessions = join(fixture.root, "pi-agent/sessions");
-  // Pi names the session directory after the cwd with its leading "/" or "C:/" removed.
-  const cwdSlug = piChatted.replace(/^[^/]*\//, "").replaceAll("/", "-");
-  const session = join(sessions, `--${cwdSlug}--`, "2026-10-01T00-00-00-000Z_s.jsonl");
-  mkdirSync(dirname(session), { recursive: true });
-  writeFileSync(
-    session,
-    [
-      { type: "session", version: 3, id: "s", timestamp: "2026-10-01T00:00:00.000Z", cwd: piChatted },
-      { type: "message", id: "u1", parentId: null, timestamp: "2026-10-01T00:00:01.000Z", message: { role: "user", content: [{ type: "text", text: "go" }] } },
-    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
-  );
-  const { rows, warnings } = runAudit(fixture, { transcripts: [fixture.transcripts, sessions] });
-  expect(warnings).toEqual([]);
-  expect(rowFor(rows, piChatted).slice(6, 8)).toEqual([ymd(Math.floor(Date.now() / 1000)), "verify-recent-chat"]);
-  expect(rowFor(rows, quiet).slice(6, 8)).toEqual(["-", "safe"]);
-});
+
 
 for (const dir of ["sessions", "archived_sessions"]) {
   test(`a Codex session in ~/.codex/${dir} marks the worktree it ran in as a recent chat`, () => {
@@ -570,17 +549,7 @@ describe("default transcripts roots", () => {
   const roots = ({ exists, ...options }) =>
     defaultTranscriptRoots({ ...options, home, stat: (path) => exists(gitPath(path)) ? {} : undefined }).map(gitPath);
 
-  test("every runtime directory that exists, Pi's under PI_CODING_AGENT_DIR when set", () => {
-    const present = new Set([claude, "/home/u/.codex/sessions", "/pi/sessions", "/pi/pstack", "/home/u/.pi/agent/sessions"]);
-    const exists = (path) => present.has(path);
-    expect(roots({ env: { PI_CODING_AGENT_DIR: "/pi" }, exists })).toEqual([
-      claude,
-      "/home/u/.codex/sessions",
-      "/pi/sessions",
-      "/pi/pstack",
-    ]);
-    expect(roots({ env: {}, exists })).toEqual([claude, "/home/u/.codex/sessions", "/home/u/.pi/agent/sessions"]);
-  });
+
 
   test("Codex's sessions and archived_sessions, under CODEX_HOME when set", () => {
     const present = new Set(["/home/u/.codex/sessions", "/home/u/.codex/archived_sessions", "/cx/sessions", "/cx/archived_sessions"]);
@@ -594,12 +563,7 @@ describe("default transcripts roots", () => {
     expect(roots({ env: { CLAUDE_CONFIG_DIR: "/cc" }, exists })).toEqual(["/cc/projects"]);
   });
 
-  test("Copilot's session-state, under COPILOT_HOME when set", () => {
-    const present = new Set([claude, "/cp/session-state", "/home/u/.copilot/session-state"]);
-    const exists = (path) => present.has(path);
-    expect(roots({ env: { COPILOT_HOME: "/cp" }, exists })).toEqual([claude, "/cp/session-state"]);
-    expect(roots({ env: {}, exists })).toEqual([claude, "/home/u/.copilot/session-state"]);
-  });
+
 
   test("Claude Code's directory when no runtime directory exists, so the audit warns about it", () => {
     expect(roots({ env: {}, exists: () => false })).toEqual([claude]);
@@ -621,13 +585,10 @@ describe("default transcripts roots", () => {
     } }).map(gitPath)).toEqual([claude]);
   });
 
-  test.each([
-    ["PI_CODING_AGENT_DIR", { PI_CODING_AGENT_DIR: "/pi" }],
-    ["the default agent directory", {}],
-  ])("the Pi roots are where the extension keeps sessions and agent state under %s", (_, env) => {
-    const { agentDir } = defaultSettings(() => 0, env);
-    const roots = defaultTranscriptRoots({ env, home: homedir(), stat: () => ({}) });
-    expect(roots).toEqual(expect.arrayContaining([join(agentDir, "sessions"), join(agentDir, PSTACK_STATE_DIR)]));
+  test("does not discover removed runtime roots", () => {
+    expect(roots({ env: { PI_CODING_AGENT_DIR: "/pi", COPILOT_HOME: "/cp" }, exists: () => true })).toEqual([
+      claude, "/home/u/.codex/sessions", "/home/u/.codex/archived_sessions",
+    ]);
   });
 });
 

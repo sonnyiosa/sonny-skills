@@ -4,13 +4,9 @@
   "workspaces": {
     "": {
       "name": "pstack",
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
+      "devDependencies": {
         "typebox": "*",
       },
-      "optionalPeers": [
-        "@earendil-works/pi-coding-agent",
-      ],
     },
   },
   "packages": {
