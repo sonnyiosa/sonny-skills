@@ -61,6 +61,27 @@ class CheckLayoutTests(unittest.TestCase):
         self.plugin(nested=True)
         self.check()
 
+    def test_nested_codex_source_with_its_own_hook(self):
+        plugin = self.plugin(nested=True)
+        manifest = {"name": "example", "version": "1.0.0", "skills": "./skills/", "hooks": "./hooks/codex-hooks.json"}
+        self.write_json(plugin / ".codex-plugin/plugin.json", manifest)
+        self.write_json(plugin / "hooks/codex-hooks.json", {"hooks": {}})
+        self.write_json(self.root / ".agents/plugins/marketplace.json", {
+            "name": "sonny-skills",
+            "plugins": [{
+                "name": "example",
+                "version": "1.0.0",
+                "source": {"source": "local", "path": f"./{plugin.relative_to(self.root)}"},
+            }],
+        })
+        self.check()
+
+        manifest["hooks"] = "./hooks/hooks.json"
+        self.write_json(plugin / ".codex-plugin/plugin.json", manifest)
+        self.write_json(plugin / "hooks/hooks.json", {"hooks": {}})
+        with self.assertRaisesRegex(AssertionError, "Codex points to Claude hooks"):
+            self.check()
+
     def test_wrapper_source_fails(self):
         self.plugin(nested=True)
         self.catalog("./plugins/example")

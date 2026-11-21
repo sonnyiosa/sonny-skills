@@ -33,16 +33,12 @@ Choose the plugins you use. Superpowers supplies its workflow bootstrap. SWE Ski
 
 ## Use other harnesses
 
-The Codex catalog is [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json). It contains Superpowers and SWE Skills, each pointing to its own plugin directory. This pstack snapshot has no native Codex plugin manifest.
-
-For a local skills-only installation, link a collection's `skills/` directory into your harness's skill directory. For Codex, the following installs this checkout's pstack skills.
+The [Codex catalog](.agents/plugins/marketplace.json) includes Superpowers, SWE Skills, and pstack. To install pstack from this checkout, use the actual path to your clone.
 
 ```bash
-mkdir -p ~/.agents/skills
-ln -s /Users/kevin/projects/superpowers/plugins/pstack/skills ~/.agents/skills/pstack
+codex plugin marketplace add /path/to/sonny-skills
+codex plugin add pstack@sonny-skills
 ```
-
-If that destination already exists, inspect it before replacing it. A skills-only installation does not install session hooks. Load `poteto-mode` explicitly or configure your agent instructions to use it.
 
 OpenCode's Superpowers adapter remains in the bundled plugin. For local OpenCode V2, configure the absolute plugin directory containing `index.js`.
 

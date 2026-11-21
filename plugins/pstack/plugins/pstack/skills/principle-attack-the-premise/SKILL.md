@@ -1,17 +1,15 @@
 ---
 name: principle-attack-the-premise
-description: "Apply when repeated fixes sharing an assumption fail. State the assumption and choose an observation that can challenge it before trying another fix that depends on it."
+description: "Apply when two or more fixes that share one premise have failed the same gate. Write the premise down and test it directly before you write another fix that assumes it."
 user-invocable: false
 ---
 
-# Attack the premise
+# Attack the Premise
 
-When two or more fixes sharing an assumption fail the same gate, write down what they assumed. Before another fix depends on it, choose an observation or experiment that can challenge it.
+When two or more fixes that share one premise have failed the same gate, suspect the premise, not the fixes.
 
-Match the experiment to the hypothesis. Two timeout increases may assume requests reach the intended destination. Check the actual destination before increasing the timeout again.
+- Write the premise down: the one sentence every failed fix assumed.
+- Test it before the next fix. Find an observation that would come out differently if the premise were false, and make it. Look at how the failures are distributed, not only at how large they are.
+- If the evidence contradicts the premise, look for what the failures share that it did not predict. If one part always lands on the losing side, change what puts it there instead of adding a mechanism that cleans up after it.
 
-When the hypothesis concerns uneven allocation, ownership, or assignment, count resources or work per actor. Measure the distribution and trace the assignment per [Fix Root Causes](../principle-fix-root-causes/SKILL.md). Recommend redistribution, rotation, or reassignment only when evidence connects that assignment to the failure. An even distribution weakens the imbalance hypothesis; it does not rule out a shared defect. Every worker can leak at the same rate.
-
-Keep a rerunnable experiment when useful, per [Build the Lever](../principle-build-the-lever/SKILL.md). Do not turn this into a mandatory census for unrelated bugs.
-
-This principle questions an assumption about the existing system. [Redesign from First Principles](../principle-redesign-from-first-principles/SKILL.md) rebuilds a design around a new requirement.
+Do not start the next fix before the premise is written down and tested.

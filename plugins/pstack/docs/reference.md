@@ -4,7 +4,7 @@ Start with the [README](../README.md) for installation and your first task.
 
 ## Slash commands
 
-The package includes 58 skill directories: 34 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`. In Codex, request a skill by name or install the [optional shortcuts](#codex) for the `/name` form below.
+The package includes 67 skill directories: 43 public skills and 24 `principle-*` references. Claude Code uses `/pstack:<name>`. In Codex, select the skill by name.
 
 Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 
@@ -26,19 +26,28 @@ Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 | `/swarm` | fan out N parallel workers across slices or races, then return one aggregated report |
 | `/technical-writing` | write docs, RFCs, readmes, PR descriptions, and commit messages to one layered standard |
 | `/bro` | restate the last message in plain human language, no jargon |
+| `/in-your-own-words` | play back your goal and the problem before the agent starts |
+| `/sharpen` | make a task deeper, not bigger, by naming what a top expert would do and what would show the result is right, then rewrite the prompt to ask for that |
 | `/figure-it-out` | design a rigorous, auditable playbook for a task no bundled playbook fits |
 | `/show-me-your-work` | log decisions to a reviewable tsv decision trail |
 | `/blast-radius` | find what a change could break beyond the diff and prove safety by running code |
 | `/recall` | catch up on recent working context from chat history, live state, and the shared record |
+| `/ketchup` | catch up on everything in this chat since your last message, with an executive summary for each action item |
+| `/ketchup-video` | get the `/ketchup` catch-up as a short silent video of slides, with the calls waiting on you as text under it |
 | `/setup-pstack` | configure pstack per-role model choices |
 | `/poteto-help` | answer a question about pstack with the prompt to send and the file the answer came from |
 | `/unslop` | clean up writing by removing AI tells |
 | `/no-comments` | strip comments before review, fix the accepted findings, encode claimed constraints |
 | `/create-verification-skill` | generate a project-local verification skill and feature map |
 | `/maintain-verification-skill` | re-sync a drifted verification skill and its feature map |
+| `/create-formal-verification-skill` | generate a project-local skill that formally verifies one high-risk property |
+| `/maintain-formal-verification-skill` | re-sync a formal verification after the code it covers changed |
+| `/statechart` | check a TLA+ model and draw it as a Mermaid statechart, with the shortest path to each state that breaks a rule |
 | `/deslop` | deslop a diff before commit |
 | `/babysit` | monitor an open PR, fix CI/comments, keep it merge-ready |
+| `/thermo-nuclear-review` | audit a branch's changes for bugs, breakage, security issues, devex regressions, and feature-gate leaks |
 | `/thermo-nuclear-code-quality-review` | extremely strict maintainability audit |
+| `/thermos` | run both thermo-nuclear reviews as parallel subagents and synthesize their findings |
 | `/make-pr-easy-to-review` | clean noisy history and improve PR description before review |
 | `/fix-ci` | find failing PR checks, inspect logs, apply focused fixes |
 | `/fix-merge-conflicts` | non-interactively resolve merge conflicts, validate, finalize |
@@ -47,17 +56,17 @@ Find each skill's instructions in the [skills tree](../plugins/pstack/skills/).
 
 ## Runtime support
 
-Claude Code and Codex share one skills tree. Both plugins install routing hooks. Codex command shortcuts are separate.
+Claude Code and Codex share [one skills tree](../plugins/pstack/skills/). It includes the skills, scripts, agent references, and licenses.
 
 | Runtime | Setup and recorded verification |
 | --- | --- |
-| Claude Code | Install the marketplace plugin. Skills use Claude tool names and model defaults; the plugin installs automatic routing. |
+| Claude Code | Install the marketplace plugin (Claude Code 2.1.292 or later). Skills use Claude tool names and model defaults; the plugin installs automatic routing. |
 | Codex | Install the native plugin through the repository's marketplace and trust its hook through `/hooks`. The [Codex mapping](../plugins/pstack/skills/poteto-mode/references/codex-tools.md) translates Claude tools and model names. Shared skill symlinks were also detected in a live session. |
 
+These checks cover skill discovery. Delegation remains unverified on Prime Agent and Gemini CLI, as do their multi-model workflows. On those runtimes, agents must adapt Claude-specific tools, models, and configuration. Each mapping applies only to its runtime.
 
 ### Automatic routing
 
-The Claude Code and Codex plugins load the [routing instruction](../plugins/pstack/hooks/session-start-context.md) at session start. Codex requires hook trust through `/hooks`. The instruction invokes `poteto-mode` when a task meets any of these conditions:
 
 - It touches more than one file or changes a signature other files call.
 - It involves a design or architecture choice.
@@ -65,35 +74,19 @@ The Claude Code and Codex plugins load the [routing instruction](../plugins/psta
 
 Smaller tasks proceed directly. The full skill loads when invoked, and explicit user instructions take precedence.
 
-To disable routing, run `setup-pstack` and turn off the session hook. In Claude Code, use `/pstack:setup-pstack`. You can also write `session hook: off` in the runtime's sheet, at the path in [setup-pstack's runtime table](../plugins/pstack/skills/setup-pstack/SKILL.md#other-runtimes). The hook reads that setting before injecting its instruction. Without the setting, routing stays on.
+Run `setup-pstack` to turn off routing. Set `PSTACK_SESSION_HOOK=off` to turn it off for the current environment.
 
-
-
-### Manage linked skills
-
-If a destination already exists, inspect it before replacing it. The installation skips existing files, directories, and links.
-
-To update, pull changes in the clone that the links point to. To uninstall a linked skill, remove its link at `~/.agents/skills/<name>`. This removes it from every runtime using that directory.
-
-### Install with the skills CLI
-
-To install without keeping a local clone:
-
-```shell
-npx skills add https://github.com/michael-denyer/pstack-claude/tree/main/plugins/pstack/skills --skill "*" --agent "*" --yes
-```
-
-The [CI installation check](../.github/workflows/ci.yml) uses the skills CLI to copy the checkout's skill tree and compare the installed files with their sources.
+Skills-only installs and other runtimes do not include these integrations. Request `poteto-mode` explicitly, or add a standing instruction to the runtime's instruction file.
 
 ### Codex
 
-The [native plugin manifest](../plugins/pstack/.codex-plugin/plugin.json) points to the shared skills directory and the Codex [SessionStart hook](../plugins/pstack/hooks/codex-hooks.json). The [marketplace catalog](../.agents/plugins/marketplace.json) lists `pstack` in the `pstack-claude` marketplace. Review and trust the hook through `/hooks`; Codex asks again when its definition changes.
+The [native plugin manifest](../plugins/pstack/.codex-plugin/plugin.json) points to the shared skills directory and the Codex [SessionStart hook](../plugins/pstack/hooks/codex-hooks.json). The [marketplace catalog](../.agents/plugins/marketplace.json) lists `pstack` in the `pstack-claude` marketplace. Review and trust the hook, listed as `Loading pstack routing`, through `/hooks`; Codex asks again when its definition changes.
 
 The [README installation](../README.md#codex) registers that catalog with `codex plugin marketplace add`, then installs the plugin with `codex plugin add`. These commands match the help output from `codex-cli 0.154.0-alpha.6.2`. A fresh native installation was not tested for this documentation change.
 
 OpenAI documents [marketplace registration and the plugin format](https://developers.openai.com/plugins/build/plugins#add-a-marketplace-from-the-cli). If your CLI lacks `plugin add`, use the plugin browser after registering the marketplace, or use the [skills-only installation](#shared-skills-installation).
 
-Request `poteto-mode` by name or select its entry, such as `pstack:poteto-mode`. To enable parallel subagents:
+Invoke a skill the two ways [Codex's skills documentation](https://developers.openai.com/codex/skills) gives. Type `$` and the skill's name, such as `$poteto-mode` or `$babysit`, and choose its entry, or pick it from `/skills`. In a plugin install the entry reads `poteto-mode (pstack)` and inserts `$pstack:poteto-mode`. A skills-only install has no `pstack:` prefix. To enable parallel subagents:
 
 ```toml
 [features]
@@ -102,27 +95,43 @@ multi_agent = true
 
 Add this setting to `~/.codex/config.toml` if subagents are disabled. Skills such as `arena`, `interrogate`, and `architect` use parallel agents. The [mapping](../plugins/pstack/skills/poteto-mode/references/codex-tools.md) describes a sequential fallback and translates Claude tool names, model defaults, and verification instructions.
 
-For optional slash-command shortcuts, run this from the clone's root:
+## Configuration and dependencies
 
-```shell
-mkdir -p ~/.codex/prompts
-for c in plugins/pstack/.codex-plugin/prompts/*.md; do
-  target=~/.codex/prompts/"$(basename "$c")"
-  test -e "$target" || test -L "$target" || ln -s "$(pwd)/$c" "$target"
-done
+Invoke [setup-pstack](../plugins/pstack/skills/setup-pstack/SKILL.md) to choose models for each role. It detects available models, confirms the choices, and writes an override sheet. Its [runtime table](../plugins/pstack/skills/setup-pstack/references/runtimes.md) names the sheet path and loading mechanism for each runtime. Defaults live in [models.json](../plugins/pstack/models.json).
+
+For design comparisons and reviews, choose distinct models available to your runtime. The default panel uses different Claude models.
+
+Install dependencies for the workflows you use:
+
+| Dependency | When you need it |
+| --- | --- |
+| GitHub CLI, `gh` | PR monitoring and shipping. The bundled `watch-pr` requires GitHub CLI 2.48 or later to read all pages of check suites. `watch-pr` and `ship-pr` read pull requests through GitHub GraphQL, which a Claude Code cloud session refuses. There `watch-pr` stops with exit 7 on its first read, and an agent can read the PR over REST with `gh api repos/<owner>/<repo>/pulls/<number>`. Authenticate with `gh auth login`. The playbooks use Origin's CLI, `origin`, instead when it can resolve the repository. |
+| Bun | The bundled `watch-pr` scripts. Their bootstrap installs script dependencies on first run. |
+| `plugin-dev` | Claude Code skill-authoring guidance used by `automate-me`, `reflect`, and `poteto-mode`. |
+
+Install the Claude Code skill-authoring companion with:
+
+```text
+/plugin marketplace add anthropics/claude-plugins-official
+/plugin install plugin-dev@claude-plugins-official
 ```
 
-Each shortcut invokes its skill. The commands skip existing files and links. Remove a shortcut by deleting its link at `~/.codex/prompts/<name>.md`. Both native-plugin and skills-only installations work without these shortcuts.
 
+Playbooks use the runtime's task-tracking tools or an uncommitted `todo.md` checklist. For Claude Code, the repository documents `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`; see [platform adaptation](../plugins/pstack/skills/poteto-mode/SKILL.md#platform-adaptation).
+
+Use [create-verification-skill](../plugins/pstack/skills/create-verification-skill/SKILL.md) to record how the agent should run and check your project, following the [driver policy](../plugins/pstack/skills/poteto-mode/SKILL.md#non-negotiables).
+
+## Maintenance
 
 ### Repository layout
 
 ```text
 .claude-plugin/marketplace.json    Claude Code marketplace
 .agents/plugins/marketplace.json  Codex marketplace
+package.json                      Development dependencies
 plugins/pstack/
   .claude-plugin/plugin.json      Claude Code plugin manifest
-  .codex-plugin/                  Codex manifest and generated prompt stubs
+  .codex-plugin/plugin.json       Codex plugin manifest
   skills/                        Shared skills, references, and scripts
   agents/                        Claude Code subagent definitions
   hooks/                         Startup routing for Claude Code and Codex
@@ -134,7 +143,7 @@ Skills-only installs use `plugins/pstack/skills/`. Agent references and license 
 
 ### Generated files and checks
 
-The [generator](../tools/generate.mjs) updates versions, model defaults, Codex prompts, and portable reference files. The [slash-command table](#slash-commands) supplies the Codex prompt descriptions and order. Edit that table when changing a menu description, then regenerate. Keep a row for every public skill, with `poteto-mode` first.
+The [generator](../tools/generate.mjs) updates versions, model defaults, Codex preambles, and portable references.
 
 [Documentation fact tests](../tests/readme-facts.test.mjs) check the skill counts and upstream pin. The table parser requires the header `| command | use it when |`.
 
@@ -146,17 +155,17 @@ bun tools/generate.mjs
 bun test tests/
 ```
 
-The install step reads the root `bun.lock` and fetches `typebox`, which the generator imports.
+The install step reads the root `bun.lock` and fetches `typebox` for manifest validation.
 
 CI also checks shell scripts, workflows, Markdown, relative links, and the bundled Bun tools. See [local checks](../CONTRIBUTING.md#things-that-will-fail-ci) for commands and [release instructions](../CONTRIBUTING.md#releasing) for versioning and the live Claude Code command check.
 
 ### Port scope and attribution
 
-The skill tree is synced against upstream `df58112` (v0.15.15).
+The skill tree is synced against upstream `0b46ec3` (v0.15.46). The thermos skills and agents are synced against `118e73b` (thermos 1.0.0).
 
-This repository ports Lauren Tan's pstack from Cursor to Claude Code and shares the skills with other runtimes. It includes seven cursor-team-kit skills and an independently authored `babysit` skill. The port supplies Claude Code plugin registration and routing, Codex manifests, shortcuts, and tool mapping.
+This repository ports Lauren Tan's pstack from Cursor to Claude Code and shares the skills with other runtimes. It includes six cursor-team-kit skills, the three thermos skills with their two review subagents, and an independently authored `babysit` skill. The port supplies Claude Code plugin registration and routing, Codex manifests, the Codex tool mapping, the Pi package, extension, and tool mapping, the GitHub Copilot hooks and tool mapping, and the Muse native plugin, routing hook, and tool mapping.
 
-Cursor-specific automations, sticky-mode metadata, the Grok Bot UI workflow, and the Cursor UI tutorial are excluded. [tools/upstream.json](../tools/upstream.json) records the revisions and exclusions, [tools/substitutions.json](../tools/substitutions.json) holds the Cursor-to-Claude rewrite rules, and [CHANGES.md](../CHANGES.md) records each release. The bundled `thermo-nuclear-code-quality-review` provides a maintainability review when a workflow calls for one.
+Cursor-specific automations, sticky-mode metadata, the Grok Bot UI workflow, and the Cursor UI tutorial are excluded. [tools/upstream.json](../tools/upstream.json) records the revisions and exclusions, [tools/substitutions.json](../tools/substitutions.json) holds the Cursor-to-Claude rewrite rules, and [CHANGES.md](../CHANGES.md) records each release. The bundled `thermo-nuclear-code-quality-review` provides a maintainability review when a workflow calls for one, `thermo-nuclear-review` a correctness and security audit, and `thermos` runs both as parallel subagents.
 
 For skill changes, follow the [sync boundary](../CONTRIBUTING.md#the-sync-boundary). Runtime adaptations and workflow changes both land here, and a workflow change is declared as a fork.
 

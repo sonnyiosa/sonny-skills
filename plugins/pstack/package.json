@@ -1,7 +1,7 @@
 {
   "name": "pstack",
   "private": true,
-  "version": "0.9.81",
+  "version": "0.9.146",
   "description": "pstack workflows for Claude Code and Codex.",
   "author": {
     "name": "Michael Denyer",

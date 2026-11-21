@@ -5,14 +5,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { sheetCases, writeSheet } from "./session-hook-sheets.mjs";
+import { roleCases, sessionHookValues, sheetCases, writeSheet } from "./session-hook-sheets.mjs";
 
 const pluginRoot = fileURLToPath(new URL("../plugins/pstack/", import.meta.url));
 const manifest = JSON.parse(readFileSync(join(pluginRoot, ".codex-plugin/plugin.json"), "utf8"));
 const handler = JSON.parse(readFileSync(join(pluginRoot, manifest.hooks), "utf8")).hooks.SessionStart[0].hooks[0];
 const mandate = readFileSync(join(pluginRoot, "hooks/session-start-context.md"), "utf8");
 
-function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd" } = {}) {
+function windowsHookEnv(fixture, profile) {
+  const env = {
+    SystemRoot: process.env.SystemRoot,
+    PATH: join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0"),
+    PATHEXT: process.env.PATHEXT,
+    USERPROFILE: profile,
+    HOME: join(fixture, "other home"),
+    PSExecutionPolicyPreference: "Restricted",
+  };
+  for (const name of ["TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "ProgramData", "PSModulePath"]) {
+    if (process.env[name] !== undefined) env[name] = process.env[name];
+  }
+  return env;
+}
+
+function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd", sessionHook } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), "pstack windows hook "));
   try {
     const plugin = join(fixture, "plugin with spaces");
@@ -29,19 +44,9 @@ function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd" 
     if (context === null) rmSync(contextPath);
     else writeFileSync(contextPath, context);
     const command = handler.commandWindows.replaceAll("${CLAUDE_PLUGIN_ROOT}", plugin);
-    const env = {
-      SystemRoot: process.env.SystemRoot,
-      PATH: join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0"),
-      PATHEXT: process.env.PATHEXT,
-      USERPROFILE: profile,
-      HOME: join(fixture, "other home"),
-      CLAUDE_PLUGIN_ROOT: plugin,
-      PSExecutionPolicyPreference: "Restricted",
-    };
-    for (const name of ["TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "ProgramData", "PSModulePath"]) {
-      if (process.env[name] !== undefined) env[name] = process.env[name];
-    }
+    const env = { ...windowsHookEnv(fixture, profile), CLAUDE_PLUGIN_ROOT: plugin };
     if (codexHome !== undefined) env.CODEX_HOME = codexHome ? sheetRoot : "";
+    if (sessionHook !== undefined) env.PSTACK_SESSION_HOOK = sessionHook;
     const executable = host === "cmd" ? process.env.ComSpec ?? "cmd.exe" : "powershell.exe";
     const args = host === "cmd" ? ["/d", "/s", "/c", command] : ["-NoProfile", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
     const result = spawnSync(executable, args, {
@@ -88,6 +93,18 @@ describe.skipIf(process.platform !== "win32" && !required)("Windows Codex Sessio
     });
   }
 
+  for (const [label, value, off] of sessionHookValues) {
+    test(`${off ? "injects nothing" : "injects the context"} when PSTACK_SESSION_HOOK is ${label} and no sheet exists`, () => {
+      expect(runHook({ sessionHook: value })).toEqual({ status: 0, out: off ? "" : mandate, err: "" });
+    });
+  }
+
+  for (const [value, sheet] of [["off", "session hook: on\n"], ["on", "session hook: off\n"]]) {
+    test(`injects nothing when PSTACK_SESSION_HOOK is "${value}" and the sheet has "${sheet.trim()}"`, () => {
+      expect(runHook({ sheet, sessionHook: value })).toEqual({ status: 0, out: "", err: "" });
+    });
+  }
+
   test("writes UTF-8 context without an added newline", () => {
     const context = "Routing context: 中文 café 🚀";
     expect(runHook({ context })).toEqual({ status: 0, out: context, err: "" });
@@ -99,4 +116,17 @@ describe.skipIf(process.platform !== "win32" && !required)("Windows Codex Sessio
     expect(result.out).toBe("");
     expect(result.err).not.toBe("");
   });
+
+  for (const arg of ["cursor", ""]) {
+    test(`fails on runtime argument ${JSON.stringify(arg)}`, () => {
+      const script = join(pluginRoot, "hooks/session-start.ps1");
+      const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...(arg ? [arg] : [])];
+      const r = spawnSync("powershell.exe", args, { encoding: "utf8" });
+      expect({ status: r.status, out: r.stdout, err: r.stderr.trimEnd() }).toEqual({
+        status: 2,
+        out: "",
+        err: `session-start.ps1: unknown runtime '${arg}' (expected codex)`,
+      });
+    });
+  }
 });

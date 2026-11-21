@@ -18,12 +18,14 @@ def check_layout():
     assert len(entries) == len(expected), "duplicate or missing Claude plugin entries"
     assert {entry["name"] for entry in entries} == expected, "Claude inventory differs from plugins/"
 
+    claude_roots = {}
     for entry in entries:
         package = ROOT / "plugins" / entry["name"]
         source = entry["source"]
         assert isinstance(source, str) and source.startswith("./") and ".." not in Path(source).parts, f"wrong source for {entry['name']}"
         plugin = (ROOT / source).resolve()
         assert plugin.is_relative_to(package), f"wrong source for {entry['name']}"
+        claude_roots[entry["name"]] = ROOT / source
         manifest = read_json(plugin / ".claude-plugin/plugin.json")
         assert manifest["name"] == entry["name"], f"wrong plugin name in {plugin}"
         assert manifest["version"] == entry["version"], f"stale Claude version for {entry['name']}"
@@ -46,20 +48,33 @@ def check_layout():
     ]:
         catalog = read_json(ROOT / directory / "marketplace.json")
         assert catalog["name"] == claude["name"], f"marketplace name drift in {directory}"
-        supported = {name for name in expected if (ROOT / "plugins" / name / manifest_directory / "plugin.json").is_file()}
-        assert len(catalog["plugins"]) == len(supported), f"duplicate or missing entries in {directory}"
-        assert {entry["name"] for entry in catalog["plugins"]} == supported, f"incorrect inventory in {directory}"
+        manifest_path = Path(manifest_directory) / "plugin.json"
+        packages = {name: ROOT / "plugins" / name for name in expected}
+        sources = {}
+        for name, package in packages.items():
+            if (package / manifest_path).is_file():
+                sources[name] = package
+            elif source_field == "local" and (claude_roots[name] / manifest_path).is_file():
+                sources[name] = claude_roots[name]
+        assert len(catalog["plugins"]) == len(sources), f"duplicate or missing entries in {directory}"
+        assert {entry["name"] for entry in catalog["plugins"]} == sources.keys(), f"incorrect inventory in {directory}"
         for entry in catalog["plugins"]:
-            plugin = ROOT / "plugins" / entry["name"]
-            source = f"./plugins/{entry['name']}"
+            plugin = sources[entry["name"]]
+            source = f"./{plugin.relative_to(ROOT)}"
             expected_source = {"source": "local", "path": source} if source_field == "local" else source
             assert entry["source"] == expected_source, f"wrong source in {directory} for {entry['name']}"
-            manifest = read_json(plugin / manifest_directory / "plugin.json")
+            manifest = read_json(plugin / manifest_path)
             assert manifest["name"] == entry["name"], f"wrong manifest name in {plugin}"
             assert manifest["version"] == entry["version"], f"stale version in {directory} for {entry['name']}"
             if source_field == "local":
                 assert manifest["skills"] == "./skills/", f"wrong Codex skill path in {plugin}"
-                assert manifest.get("hooks") == {}, f"Codex hook suppression missing in {plugin}"
+                hooks = manifest.get("hooks")
+                if isinstance(hooks, str):
+                    hook_path = (plugin / hooks).resolve()
+                    assert hooks.startswith("./") and hook_path.is_relative_to(plugin.resolve()) and hook_path.is_file(), f"invalid Codex hooks path in {plugin}"
+                    assert hook_path != (plugin / "hooks/hooks.json").resolve(), f"Codex points to Claude hooks in {plugin}"
+                else:
+                    assert hooks == {}, f"Codex hook suppression missing in {plugin}"
                 for field in ("composerIcon", "logo"):
                     resource = manifest.get("interface", {}).get(field)
                     if resource:

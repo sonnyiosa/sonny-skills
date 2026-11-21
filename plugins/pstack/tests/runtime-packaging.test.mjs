@@ -1,6 +1,6 @@
 // Runtime packaging contracts: manifests and hook commands.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateHooks } from "../tools/generate.mjs";
@@ -27,31 +27,30 @@ describe("validateCodexMarketplace", () => {
   });
 });
 
-describe("manifests", () => {
-  const json = (rel) => JSON.parse(readFileSync(join(repoRoot, rel), "utf8"));
-  const claude = json("plugins/pstack/.claude-plugin/plugin.json");
-  const codex = json("plugins/pstack/.codex-plugin/plugin.json");
-  const claudeMarketplace = json(".claude-plugin/marketplace.json");
-  const codexMarketplace = json(".agents/plugins/marketplace.json");
+function codexHookEvents(read) {
+  const root = read("plugin.json");
+  if (root !== null && JSON.parse(root).$schema?.startsWith("https://agent-plugins.org/schemas/")) return [];
+  const { hooks } = JSON.parse(read(".codex-plugin/plugin.json"));
+  return Object.keys(JSON.parse(read(hooks)).hooks);
+}
 
-  test("the plugin and marketplace manifests agree on every fact they repeat", () => {
-    const shared = ({ name, author, homepage, repository, license, keywords }) =>
-      ({ name, author, homepage, repository, license, keywords });
-    expect(Object.values(shared(claude))).not.toContain(undefined);
-    expect(shared(codex)).toEqual(shared(claude));
-    expect(claudeMarketplace.owner).toEqual(claude.author);
-    expect(claudeMarketplace.plugins.map(({ name, source }) => [name, source])).toEqual([[claude.name, "./plugins/pstack"]]);
-    expect(codexMarketplace.name).toBe(claudeMarketplace.name);
-    expect(codexMarketplace.interface.displayName).toBe(codex.interface.displayName);
-    expect(codexMarketplace.plugins.map(({ name, source, category }) => [name, source.path, category])).toEqual([
-      [codex.name, claudeMarketplace.plugins[0].source, codex.interface.category],
-    ]);
+describe("Codex hook discovery", () => {
+  const pluginRoot = join(repoRoot, "plugins/pstack");
+  const shipped = (rel) => (existsSync(join(pluginRoot, rel)) ? readFileSync(join(pluginRoot, rel), "utf8") : null);
+
+  test("Codex registers the shipped SessionStart hook", () => {
+    expect(codexHookEvents(shipped)).toContain("SessionStart");
+  });
+
+  test("an Agent Plugins manifest at the plugin root hides the hooks, as 0.9.83 did", () => {
+    const manifest = JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "pstack" });
+    expect(codexHookEvents((rel) => (rel === "plugin.json" ? manifest : shipped(rel)))).toEqual([]);
   });
 });
 
 describe("validateHooks", () => {
-  const hooks = (command, commandWindows) =>
-    JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command, commandWindows }] }] } });
+  const hooks = (command, commandWindows, powershell) =>
+    JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command, commandWindows, powershell }] }] } });
   const exec = { mode: 0o755 };
   const plain = { mode: 0o644 };
 
@@ -89,6 +88,14 @@ describe("validateHooks", () => {
     );
   });
 
+  test("a host without POSIX execute bits still checks every hook path", () => {
+    const cmd = hooks('"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"');
+    expect(() => validateHooks(cmd, { statOf: () => plain, checkExecutable: false })).not.toThrow();
+    expect(() => validateHooks(cmd, { statOf: () => null, checkExecutable: false })).toThrow(
+      "SessionStart: hooks/session-start.sh does not exist",
+    );
+  });
+
   test("checks the Windows override path without requiring an executable bit for PowerShell", () => {
     const cmd = hooks(
       '"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh" codex',
@@ -99,6 +106,32 @@ describe("validateHooks", () => {
     expect(() => validateHooks(cmd, { statOf: (rel) => rel.endsWith(".sh") ? exec : null })).toThrow(
       "SessionStart: hooks/session-start.ps1 does not exist",
     );
+  });
+
+  test("checks a Copilot PowerShell override under the runtime's own root variable", () => {
+    const root = "COPILOT_PLUGIN_ROOT";
+    const sh = '"${COPILOT_PLUGIN_ROOT}/hooks/session-start.sh" copilot';
+    const ps = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:COPILOT_PLUGIN_ROOT/hooks/session-start.ps1" copilot';
+    const statOf = (rel) => (rel.endsWith(".sh") ? exec : plain);
+    expect(() => validateHooks(hooks(sh, undefined, ps), { statOf, root })).not.toThrow();
+    expect(() => validateHooks(hooks(sh, undefined, ps), { statOf: (rel) => (rel.endsWith(".sh") ? exec : null), root })).toThrow(
+      "SessionStart: hooks/session-start.ps1 does not exist",
+    );
+    const otherRoot = 'powershell.exe -File "$env:CLAUDE_PLUGIN_ROOT/hooks/session-start.ps1"';
+    expect(() => validateHooks(hooks(sh, undefined, otherRoot), { statOf, root })).toThrow("does not reference ${COPILOT_PLUGIN_ROOT}");
+  });
+
+  test("accepts exit 0 as the only PowerShell override that names no plugin file", () => {
+    const root = "COPILOT_PLUGIN_ROOT";
+    const sh = '"${COPILOT_PLUGIN_ROOT}/hooks/pre-tool-use.sh"';
+    expect(() => validateHooks(hooks(sh, undefined, "exit 0"), { statOf: () => exec, root })).not.toThrow();
+    for (const ps of [
+      'powershell.exe -File "$env:COPILOT_PLUGN_ROOT/hooks/session-start.ps1" copilot',
+      'powershell.exe -File "${COPILOT_PLUGIN_ROOT}/hooks/missing.ps1" copilot',
+      "Write-Output allow",
+    ]) {
+      expect(() => validateHooks(hooks(sh, undefined, ps), { statOf: () => exec, root })).toThrow("does not reference ${COPILOT_PLUGIN_ROOT}");
+    }
   });
 
   test("names a hook without a command, even when it has a Windows override", () => {
@@ -157,4 +190,3 @@ describe("validateHooks", () => {
     );
   });
 });
-

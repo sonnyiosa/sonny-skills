@@ -9,6 +9,8 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadModels, parseModels, regions } from "../tools/generate.mjs";
+import { code } from "../tools/plugin.mjs";
+import { RUNTIMES } from "../tools/runtimes.mjs";
 import { markdownFiles } from "../tools/validate-skills.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -17,8 +19,6 @@ const raw = JSON.parse(readFileSync(join(repoRoot, "plugins/pstack/models.json")
 const models = loadModels();
 
 describe("committed models.json", () => {
-
-
   test("available models are the names the Claude Code Agent tool accepts", () => {
     // The Agent tool's `model` parameter is an enum of family names; a full ID
     // such as claude-opus-5-5 is rejected before the subagent starts.
@@ -45,11 +45,23 @@ describe("parseModels", () => {
     const arena = role(resolved, "arena runners");
     expect(arena.tier).toBe("panel");
     expect(arena.models).toEqual(raw.tiers.panel);
-    expect(role(resolved, "bug-fix").models).toEqual([raw.tiers.strongest]);
+    expect(role(resolved, "feature, refactoring").models).toEqual([raw.tiers.worker]);
+    expect(role(resolved, "strongest judgment").models).toEqual([raw.tiers.strongest]);
   });
 
-  test("rejects removed Pi model configuration", () => {
-    expect(parse((p) => { p.pi = {}; })).toThrow("unsupported pi model configuration");
+  test("a null or non-object root fails naming models.json instead of a bare TypeError", () => {
+    expect(() => parseModels(null, anySkill)).toThrow("models.json: must be an object");
+    expect(() => parseModels(undefined, anySkill)).toThrow("models.json: must be an object");
+    expect(() => parseModels([], anySkill)).toThrow("models.json: must be an object");
+    expect(() => parseModels("x", anySkill)).toThrow("models.json: must be an object");
+  });
+
+  test("a null or non-object role fails naming the entry instead of a bare TypeError", () => {
+    expect(parse((p) => (p.roles = [null]))).toThrow("models.json: roles[0] must be an object");
+    expect(parse((p) => (p.roles = [undefined]))).toThrow("models.json: roles[0] must be an object");
+    expect(parse((p) => (p.roles = ["x"]))).toThrow("models.json: roles[0] must be an object");
+    expect(parse((p) => (p.roles = [[]]))).toThrow("models.json: roles[0] must be an object");
+    expect(parse((p) => p.roles.splice(1, 0, null))).toThrow("models.json: roles[1] must be an object");
   });
 
   test("a missing top-level key throws naming it", () => {
@@ -57,7 +69,7 @@ describe("parseModels", () => {
     expect(parse((p) => delete p.codex)).toThrow('models.json: "codex" must be an object');
   });
 
-  test.each(["default", "strongest", "panel"])("a missing %s tier throws naming it, since a stamped region renders from it", (tier) => {
+  test.each(["default", "strongest", "worker", "panel"])("a missing %s tier throws naming it, since a stamped region renders from it", (tier) => {
     expect(
       parse((p) => {
         delete p.tiers[tier];
@@ -95,14 +107,14 @@ describe("parseModels", () => {
   });
 
   test("a duplicate role label throws naming it", () => {
-    expect(parse((p) => p.roles.push({ ...role(p, "how explorer") }))).toThrow(
-      'models.json: role "how explorer" appears twice',
+    expect(parse((p) => p.roles.push({ ...role(p, "swarm workers") }))).toThrow(
+      'models.json: role "swarm workers" appears twice',
     );
   });
 
   test("a role whose skill directory does not exist throws naming both", () => {
-    expect(parse(() => {}, (skill) => skill !== "why")).toThrow(
-      'models.json: role "why investigators" names skill "why", which has no SKILL.md',
+    expect(parse(() => {}, (skill) => skill !== "swarm")).toThrow(
+      'models.json: role "swarm workers" names skill "swarm", which has no SKILL.md',
     );
   });
 
@@ -125,17 +137,16 @@ describe("parseModels", () => {
     );
   });
 
-
-
   test("a codex block that misses or adds a tier throws naming the tier", () => {
     expect(parse((p) => delete p.codex.strongest)).toThrow('models.json: codex has no example for tier "strongest"');
     expect(parse((p) => (p.codex.fastest = "gpt"))).toThrow('models.json: codex names "fastest", which is not a tier');
   });
+
 });
 
 describe("role labels reach the prose", () => {
-  // The prose may hyphenate a label ("how-explorer" for the sheet's
-  // "how explorer") and names only the first segment of a comma-joined label.
+  // The prose may hyphenate a label ("swarm-workers" for the sheet's
+  // "swarm workers") and names only the first segment of a comma-joined label.
   const normalize = (text) => text.toLowerCase().replace(/[-\s]+/g, " ");
 
   function skillProse(skill) {
@@ -157,4 +168,26 @@ describe("role labels reach the prose", () => {
       expect(normalize(skillProse(role.skill))).toContain(needle);
     });
   }
+});
+
+test("each runtime mapping names exactly the skills with a panel role as its diverse-model panels", () => {
+  const panelSkills = [...new Set(models.roles.filter((r) => r.tier === "panel").map((r) => r.skill))].sort();
+  const lists = markdownFiles(join(skillsDir, "poteto-mode/references")).flatMap((file) =>
+    [...readFileSync(file, "utf8").matchAll(/Diverse-model panels \(([^)]*)\)/g)].map((m) => ({
+      file: relative(repoRoot, file),
+      skills: [...m[1].matchAll(/`([^`]+)`/g)].map((s) => s[1]).sort(),
+    })),
+  );
+  expect(lists.length).toBeGreaterThan(0);
+  for (const list of lists) expect(list).toEqual({ ...list, skills: panelSkills });
+});
+
+test("moving a skill's roles off the panel tier drops it from every runtime's panel list", () => {
+  const skill = models.roles.find((r) => r.tier === "panel").skill;
+  const moved = { ...models, roles: models.roles.map((r) => (r.skill === skill ? { ...r, tier: "default" } : r)) };
+  const panelLists = (m) => RUNTIMES.map((runtime) => runtime.modelNames(m).match(/Diverse-model panels \(([^)]*)\)/)?.[1]).filter(Boolean);
+  const before = panelLists(models);
+  expect(before.length).toBeGreaterThan(0);
+  for (const list of before) expect(list).toContain(code(skill));
+  for (const list of panelLists(moved)) expect(list).not.toContain(code(skill));
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -29,6 +30,7 @@ const requiredPortableFiles = [
   "poteto-mode/references/agents/comment-sicko.md",
   "poteto-mode/references/licenses/LICENSE",
   "poteto-mode/references/licenses/LICENSE-cursor-team-kit",
+  "poteto-mode/references/licenses/LICENSE-thermos",
   "poteto-mode/references/licenses/NOTICE.md",
 ];
 
@@ -163,6 +165,135 @@ describe("shared Agent Skills tree", () => {
     }
   });
 
+  // A throwaway skills tree: each key is a path under the root, each value
+  // that file's text. Removed after `run` returns or throws.
+  function withSkillTree(files, run) {
+    const root = mkdtempSync(join(tmpdir(), "pstack-skills-links-"));
+    try {
+      for (const [path, text] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), text);
+      }
+      return run(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test.each([
+    ["bare parentheses", "[guide](references/guide(v1).md)", "guide(v1).md"],
+    ["nested bare parentheses", "[guide](references/guide(v(1)).md)", "guide(v(1)).md"],
+    ["escaped parentheses", String.raw`[guide](references/guide\(v1\).md)`, "guide(v1).md"],
+    ["escaped closing parenthesis", String.raw`[guide](references/guide\).md)`, "guide).md"],
+    ["bare parentheses and a title", '[guide](references/guide(v1).md "Guide (v1)")', "guide(v1).md"],
+    ["a quoted title with an unmatched parenthesis", '[guide](references/guide(v1).md "Guide (v1")', "guide(v1).md"],
+    ["a single-quoted title", "[guide](references/guide(v1).md 'Guide )')", "guide(v1).md"],
+    ["a parenthesized title", "[guide](references/guide(v1).md (Guide))", "guide(v1).md"],
+    ["parentheses", "[guide](<references/guide(v1).md>)", "guide(v1).md"],
+    ["spaces and a title", '[guide]( \t<references/guide (v1).md> "Guide (v1)")', "guide (v1).md"],
+    ["an unmatched parenthesis", "[guide](<references/guide).md>)", "guide).md"],
+    ["query and fragment", "[guide](<references/guide(v1).md?download=1#section>)", "guide(v1).md"],
+    ["percent encoding", "[guide](references/guide%28v1%29.md)", "guide(v1).md"],
+    ["reference definition", '[guide][ref]\n[ref]: <references/guide(v1).md> "Guide"', "guide(v1).md"],
+  ])("local link destinations preserve %s", (_name, markdown, filename) => {
+    withSkillTree(
+      { "example/SKILL.md": `${markdown}\n`, [`example/references/${filename}`]: "# Guide\n" },
+      (root) => expect(() => validateSkillsTree(root)).not.toThrow(),
+    );
+  });
+
+  test.each([
+    ["references/missing(v1).md", "missing"],
+    [String.raw`references/missing\).md`, "missing"],
+    ["references/missing%GG(v1).md", "invalid URI encoding"],
+    ["../../outside(v1).md", "escapes skills tree"],
+  ])("invalid bare destinations are checked in full: %s", (target, reason) => {
+    withSkillTree({ "example/SKILL.md": `[guide](${target})\n` }, (root) => {
+      const decoded = target.replaceAll("\\", "");
+      expect(() => validateSkillsTree(root)).toThrow(`example/SKILL.md -> ${decoded} (${reason})`);
+    });
+  });
+
+  test("a bare-parenthesis link does not hide a later missing link on the same line", () => {
+    withSkillTree(
+      {
+        "example/SKILL.md": '[guide](references/guide(v1).md "Guide (v1)") [missing](missing.md)\n',
+        "example/references/guide(v1).md": "# Guide\n",
+      },
+      (root) => {
+        let message = "did not throw";
+        try {
+          validateSkillsTree(root);
+        } catch (error) {
+          message = error.message;
+        }
+        expect(message).toContain("example/SKILL.md -> missing.md (missing)");
+        expect(message).not.toContain("references/guide");
+      },
+    );
+  });
+
+  test("a backslash at the end of a line does not carry a link onto the next line", () => {
+    withSkillTree({ "example/SKILL.md": "[guide](missing\\\nmore) text\n" }, (root) =>
+      expect(() => validateSkillsTree(root)).not.toThrow(),
+    );
+  });
+
+  test.each([
+    ["missing(v1).md", "missing"],
+    ["missing (v1).md", "missing"],
+    ["missing%GG(v1).md", "invalid URI encoding"],
+    ["../../outside(v1).md", "escapes skills tree"],
+  ])("an invalid angle-bracket target still fails: %s", (target, reason) => {
+    withSkillTree({ "example/SKILL.md": `[guide](<${target}>)\n` }, (root) => {
+      expect(() => validateSkillsTree(root)).toThrow(`example/SKILL.md -> ${target} (${reason})`);
+    });
+  });
+
+  test("an angle-bracket link does not hide a later missing link on the same line", () => {
+    withSkillTree(
+      {
+        "example/SKILL.md": '[guide](<references/guide(v1).md> "Guide") [missing](missing.md)\n',
+        "example/references/guide(v1).md": "# Guide\n",
+      },
+      (root) => {
+        let message = "did not throw";
+        try {
+          validateSkillsTree(root);
+        } catch (error) {
+          message = error.message;
+        }
+        expect(message).toContain("example/SKILL.md -> missing.md (missing)");
+        expect(message).not.toContain("references/guide");
+      },
+    );
+  });
+
+  test.each([
+    '[guide](<references/guide(v1).md> "Guide")',
+    '[guide](references/guide(v1).md "Guide")',
+    String.raw`[guide](references/guide\(v1\).md)`,
+  ])("the link validator CLI checks the complete destination in %s", (link) => {
+    const cli = join(repoRoot, "tools/validate-skills.mjs");
+    const markdown = `${link} [external](<https://example.com/guide(v1)>)`;
+    withSkillTree(
+      { "example/SKILL.md": `${markdown}\n`, "example/references/guide(v1).md": "# Guide\n" },
+      (root) => {
+        const valid = spawnSync("node", [cli, root], { encoding: "utf8" });
+        expect(valid.error).toBeUndefined();
+        expect(valid.status).toBe(0);
+        expect(valid.stderr).toBe("");
+        expect(valid.stdout).toContain("ok: local markdown links stay inside");
+
+        writeFileSync(join(root, "example/SKILL.md"), `${markdown} [missing](missing.md)\n`);
+        const invalid = spawnSync("node", [cli, root], { encoding: "utf8" });
+        expect(invalid.error).toBeUndefined();
+        expect(invalid.status).toBe(1);
+        expect(invalid.stderr).toContain("example/SKILL.md -> missing.md (missing)");
+      },
+    );
+  });
+
   test("an escaping markdown target fails the boundary check", () => {
     const root = mkdtempSync(join(tmpdir(), "pstack-skills-links-"));
     const skill = join(root, "example");
@@ -283,17 +414,22 @@ describe("agentSkills reads frontmatter as YAML", () => {
 });
 
 describe("Codex model names", () => {
-  test("names a strongest Codex model for the roles that default to it on Claude", () => {
+  test("names a worker and a strongest Codex model for the roles that default to each on Claude", () => {
     const raw = JSON.parse(readFileSync(join(repoRoot, "plugins/pstack/models.json"), "utf8"));
-    const oneOff = raw.roles.map((r) => (r.role === "swarm workers" ? { ...r, models: ["haiku"] } : r));
-    const section = codexModelNamesSection(resolveModels({ ...raw, roles: oneOff }));
-    const strongestLine = section.split("\n").find((line) => line.includes("strongest Claude model"));
+    const oneOff = raw.roles.map((r) => (r.role === "swarm workers" ? { ...r, models: ["haiku"] } : r));    const section = codexModelNamesSection(resolveModels({ ...raw, roles: oneOff }));
+    const lineWith = (text) => section.split("\n").find((line) => line.includes(text));
+    const strongestLine = lineWith("strongest Claude model");
+    const workerLine = lineWith("Claude worker model");
 
-    expect(strongestLine).not.toContain("swarm workers");
+    expect(workerLine).not.toContain("swarm workers");
 
     expect(strongestLine).toContain(`\`${raw.codex.strongest}\``);
-    for (const role of ["bug-fix", "perf-issue", "hillclimb", "strongest judgment"]) {
-      expect(section).toContain(role);
+    expect(strongestLine).toContain("`strongest judgment`");
+    expect(workerLine).toContain(`\`${raw.codex.worker}\``);
+    expect(workerLine).toContain("`feature, refactoring`");
+    for (const role of ["bug-fix", "perf-issue", "hillclimb", "judgment and prose"]) {
+      expect(workerLine).not.toContain(`\`${role}\``);
+      expect(strongestLine).not.toContain(`\`${role}\``);
     }
     for (const family of raw.available) expect(section).not.toContain(`\`${family}\``);
   });

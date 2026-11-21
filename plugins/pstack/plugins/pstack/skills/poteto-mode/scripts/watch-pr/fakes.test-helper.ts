@@ -1,5 +1,6 @@
 import type {
   Check,
+  SuiteCheck,
   ChecksFastPath,
   CommitRollup,
   GitHubReader,
@@ -7,7 +8,9 @@ import type {
   PrContext,
   PullRequestFacts,
   Repository,
+  RawReviewThread,
   ReviewThread,
+  ReviewThreadPage,
   RollupPage,
 } from "./types.ts";
 import { parsePullRequest } from "./github.ts";
@@ -19,11 +22,17 @@ export interface FakeReaderOptions {
   readonly fastPath?: ChecksFastPath;
   readonly rollupPages?: readonly RollupPage[];
   readonly threads?: readonly ReviewThread[];
+  readonly threadPages?: readonly ReviewThreadPage[];
   readonly commitRollups?: readonly CommitRollup[];
+  readonly unsettledSuites?: readonly SuiteCheck[];
   readonly openPullRequests?: readonly OpenPullRequest[];
   readonly defaultBranch?: string;
   readonly origin?: Repository | null;
   readonly current?: PrContext;
+}
+
+function toRawThread(thread: ReviewThread): RawReviewThread {
+  return { id: thread.id, firstComment: thread.firstComment, resolved: false };
 }
 
 export function passingCheck(name = "ci"): Check {
@@ -83,6 +92,7 @@ export function fakeReader(
   };
   let page = 0;
   let reads = 0;
+  let threadPage = 0;
   return {
     calls,
     async originRepo() {
@@ -134,13 +144,20 @@ export function fakeReader(
         }
       );
     },
-    async reviewThreads() {
-      calls.push("reviewThreads");
-      return options.threads ?? [];
+    async reviewThreadPage(_requested, after) {
+      calls.push(`reviewThreadPage:${after ?? "null"}`);
+      return options.threadPages?.[threadPage++] ?? {
+        threads: (options.threads ?? []).map(toRawThread),
+        endCursor: null,
+      };
     },
     async commitRollups() {
       calls.push("commitRollups");
       return options.commitRollups ?? [{ oid: "head", state: "SUCCESS" }];
+    },
+    async unsettledSuites(_requested, head, checksRead) {
+      calls.push(`unsettledSuites:${head}:${checksRead}`);
+      return { checks: options.unsettledSuites ?? [], queuedWithoutRuns: [] };
     },
   };
 }

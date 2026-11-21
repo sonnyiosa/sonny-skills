@@ -29,6 +29,19 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Developer Tools"
+    },
+    {
+      "name": "pstack",
+      "version": "0.9.146",
+      "source": {
+        "source": "local",
+        "path": "./plugins/pstack/plugins/pstack"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
     }
   ]
 }
